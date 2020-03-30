@@ -1,4 +1,7 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 #include <vulkan/vulkan.h>
@@ -10,6 +13,7 @@
 #include <set>
 #include <fstream>
 #include <stdexcept>
+#include <chrono>
 
 #pragma once
 
@@ -34,6 +38,42 @@ struct SwapchainDetails {
 	std::vector<VkPresentModeKHR> presentModes;
 };
 
+struct UniformBufferObject {
+	glm::mat4x4 model;
+	glm::mat4x4 view;
+	glm::mat4x4 projection;
+};
+
+struct Vertex {
+	glm::vec2 position;
+	glm::vec3 color;
+
+	static VkVertexInputBindingDescription GetBindingDescription() {
+		VkVertexInputBindingDescription inputBindingDescription = {};
+		inputBindingDescription.binding = 0;
+		inputBindingDescription.stride = sizeof(Vertex);
+		inputBindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+		return inputBindingDescription;
+	}
+
+	static std::vector<VkVertexInputAttributeDescription> GetAttributeDescriptions() {
+		std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
+
+		attributeDescriptions[0].binding = 0;
+		attributeDescriptions[0].location = 0;
+		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[0].offset = offsetof(Vertex, position);
+
+		attributeDescriptions[1].binding = 0;
+		attributeDescriptions[1].location = 1;
+		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+		return attributeDescriptions;
+	}
+};
+
 class Engine
 {
 private:
@@ -56,6 +96,12 @@ private:
 	VkRenderPass renderPass = 0;
 	VkPipelineLayout pipelineLayout = 0;
 	VkPipeline pipeline = 0;
+	VkDescriptorSetLayout descriptorSetLayout = 0;
+	VkBuffer vertexBuffer = 0;
+	VkBuffer indicesBuffer = 0;
+	VkDeviceMemory vertexMemory = 0;
+	VkDeviceMemory indicesMemory = 0;
+	VkCommandPool copyPool = 0;
 	VkCommandPool commandPool = 0;
 
 	std::vector<VkSemaphore> imagesAvailableSemaphores = {};
@@ -76,9 +122,37 @@ private:
 	std::vector<VkImageView> swapImageViews = {};
 	std::vector<VkFramebuffer> framebuffers = {};
 	std::vector<VkCommandBuffer> commandBuffers = {};
+
+	std::vector<VkBuffer> uniformBuffers;
+	std::vector<VkDeviceMemory> uniformBuffersMemory;
+
+	VkDescriptorPool descriptorPool = 0;
+
+	std::vector<VkDescriptorSet> descriptorSets;
 public:
 	size_t WIN_W = 800;
 	size_t WIN_H = 600;
+
+	std::vector<Vertex> vertexData = {
+{
+	{{ -0.5f }, { -0.5f }},
+	{{ 1.0f }, { 0.5f }, { 0.5f }},
+},
+{
+	{{ 0.5f }, { -0.5f }},
+	{{ 0.5f }, { 0.1f }, { 1.0f }},
+},
+{
+	{{ 0.5f }, { 0.5f }},
+	{{ 0.0f }, { 0.5f }, { 1.0f }},
+},
+{
+	{{ -0.5f }, { 0.5 }},
+	{{0.23f}, { 0.10f }, {0.00f}},
+}
+	};
+
+	std::vector<uint16_t> vertexIndices = {0, 1, 2, 2, 3, 0};
 
 	bool resizeTriggered = false;
 
@@ -90,6 +164,7 @@ public:
 	void Load();
 	void Start();
 	void Render();
+	void UpdateUniformBuffers(uint32_t currentImage);
 	void RecreateSwapchain();
 	void CloseSwapchain();
 	void Close();
@@ -109,6 +184,7 @@ public:
 	VkPresentModeKHR GetSurfacePresentMode(const std::vector<VkPresentModeKHR>& presentModes);
 	VkExtent2D GetSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, size_t& WIN_W, size_t& WIN_H);
 	std::vector<VkImage> GetSwapImages(VkDevice& logicalDevice, VkSwapchainKHR& swapchain);
+	uint32_t GetMemoryType(VkPhysicalDevice& physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
 	VkInstance CreateInstance(const std::vector<const char*>& debugLayers);
 	VkSurfaceKHR CreateWindowSurface(VkInstance& instance, GLFWwindow* window);
@@ -118,9 +194,17 @@ public:
 	std::vector<VkImageView> CreateImageViews(VkDevice& device, std::vector<VkImage>& images, VkFormat& imageFormat);
 	VkShaderModule CreateShaderModule(VkDevice& logicalDevice, const std::vector<char>& byteCode);
 	VkRenderPass CreateRenderPass(VkDevice& logicalDevice, VkFormat& format);
-	VkPipeline CreateGraphicsPipeline(VkDevice& device, VkRenderPass& renderPass, VkExtent2D& extent);
+	VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice& logicalDevice);
+	VkPipeline CreateGraphicsPipeline(VkDevice& device, VkDescriptorSetLayout& descriptorLayout, VkRenderPass& renderPass, VkExtent2D& extent);
 	std::vector<VkFramebuffer> CreateFramebuffer(VkDevice& logicalDevice, std::vector<VkImageView>& imageViews, VkRenderPass& renderPass, VkExtent2D& extent);
 	VkCommandPool CreateCommandPool(VkDevice& device, uint32_t& familyIndex);
-	std::vector<VkCommandBuffer> CreateCommandBuffers(VkDevice& logicalDevice, VkCommandPool& commandPool, std::vector<VkFramebuffer>& framebuffers);
+	VkBuffer CreateBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkDeviceMemory& bufferMemory, VkDeviceSize& size, VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryPropertyFlagBits);
+	void CopyBuffer(VkDevice& logicalDevice, VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize& size, VkCommandPool& commandPool);
+	VkDeviceMemory CreateVertexBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkBuffer& vertexBuffer, std::vector<Vertex>& vertexData, VkCommandPool& copyPool);
+	VkDeviceMemory CreateIndicesBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkBuffer& indicesBuffer, std::vector<uint16_t>& indices, VkCommandPool& copyPool);
+	void CreateUniformBuffers(std::vector<VkBuffer>& uniformBuffers, std::vector<VkDeviceMemory>& uniformBuffersMemory);
+	void CreateDescriptorPool();
+	void CreateDescriptorSets();
+	std::vector<VkCommandBuffer> CreateCommandBuffers(VkDevice& logicalDevice, VkCommandPool& commandPool, std::vector<VkFramebuffer>& framebuffers, std::vector<Vertex>& vertexData, std::vector<uint16_t>& vertexIndices, VkBuffer& vertexBuffer, VkBuffer& indicesBuffer);
 	void CreateSyncObjects(std::vector<VkSemaphore>& imageAvailableSemaphores, std::vector<VkSemaphore>& imageRenderedSemaphores, std::vector<VkFence>& inFlightFences, std::vector<VkFence>& imagesInFlight);
 };
