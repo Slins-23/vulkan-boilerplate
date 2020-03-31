@@ -8,11 +8,8 @@ Engine::~Engine() {
 
 }
 
-bool Engine::VKCheck(const char& message, VkResult result) {
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-		return true;
-	}
-	else if (result != VK_SUCCESS && result != VK_ERROR_OUT_OF_DATE_KHR && result != VK_SUBOPTIMAL_KHR) {
+void Engine::VKCheck(const char& message, VkResult result) {
+	 if (result != VK_SUCCESS) {
 		throw std::runtime_error(message + " Error code: " + result);
 	}
 }
@@ -21,29 +18,29 @@ void Engine::Load() {
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-	this->instance = CreateInstance(this->debugLayers);
-	this->window = glfwCreateWindow(this->WIN_W, this->WIN_H, this->TITLE, nullptr, nullptr);
-	this->surface = CreateWindowSurface(this->instance, this->window);
-	this->physicalDevice = CreatePhysicalDevice(this->instance, this->surface, this->deviceExtensions);
-	this->queueFamilies = GetQueueFamilies(this->physicalDevice, this->surface);
-	this->logicalDevice = CreateLogicalDevice(this->physicalDevice, this->queueFamilies, this->deviceExtensions);
-	this->swapchainDetails = GetSwapchainDetails(this->physicalDevice, this->surface);
-	this->swapchain = CreateSwapchain(this->WIN_W, this->WIN_H, this->logicalDevice, this->surface, this->swapchainDetails, this->queueFamilies);
-	this->swapImages = GetSwapImages(this->logicalDevice, this->swapchain);
-	this->swapImageViews = CreateImageViews(this->logicalDevice, this->swapImages, this->swapImageFormat);
-	this->renderPass = CreateRenderPass(this->logicalDevice, this->swapImageFormat);
-	this->descriptorSetLayout = CreateDescriptorSetLayout(this->logicalDevice);
-	this->pipeline = CreateGraphicsPipeline(this->logicalDevice, this->descriptorSetLayout, this->renderPass, this->swapImageSize);
-	this->framebuffers = CreateFramebuffer(this->logicalDevice, this->swapImageViews, this->renderPass, this->swapImageSize);
-	this->commandPool = CreateCommandPool(this->logicalDevice, this->queueFamilies.graphicsQF.value());
-	this->copyPool = CreateCommandPool(this->logicalDevice, this->queueFamilies.graphicsQF.value());
-	this->vertexMemory = CreateVertexBuffer(this->logicalDevice, this->physicalDevice, this->vertexBuffer, this->vertexData, this->copyPool);
-	this->indicesMemory = CreateIndicesBuffer(this->logicalDevice, this->physicalDevice, this->indicesBuffer, this->vertexIndices, this->copyPool);
-	CreateUniformBuffers(this->uniformBuffers, this->uniformBuffersMemory);
+	CreateInstance();
+	this->window = glfwCreateWindow(static_cast<uint32_t>(this->WIN_W), static_cast<uint32_t>(this->WIN_H), this->TITLE, nullptr, nullptr);
+	CreateWindowSurface();
+	CreatePhysicalDevice();
+	GetQueueFamilies();
+	CreateLogicalDevice();
+	GetSwapchainDetails(this->physicalDevice, this->swapchainDetails);
+	CreateSwapchain(this->swapchain, this->WIN_W, this->WIN_H);
+	GetSwapImages(this->swapchain, this->swapImages);
+	CreateImageViews();
+	CreateRenderPass();
+	CreateDescriptorSetLayout();
+	CreateGraphicsPipeline();
+	CreateFramebuffers();
+	CreateCommandPool(this->commandPool, this->queueFamilies.graphicsQF.value());
+	CreateCommandPool(this->copyPool, this->queueFamilies.graphicsQF.value());
+	CreateVertexBuffer();
+	CreateIndicesBuffer();
+	CreateUniformBuffers();
 	CreateDescriptorPool();
 	CreateDescriptorSets();
-	this->commandBuffers = CreateCommandBuffers(this->logicalDevice, this->commandPool, this->framebuffers, this->vertexData, this->vertexIndices, this->vertexBuffer, this->indicesBuffer);
-	CreateSyncObjects(this->imagesAvailableSemaphores, this->imagesRenderedSemaphores, this->inFlightFences, this->imagesInFlight);
+	CreateCommandBuffers();
+	CreateSyncObjects();
 }
 
 static void ResizeCallback(GLFWwindow* window, int width, int height) {
@@ -164,17 +161,17 @@ void Engine::RecreateSwapchain() {
 	vkDeviceWaitIdle(this->logicalDevice);
 	CloseSwapchain();
 
-	this->swapchainDetails = GetSwapchainDetails(this->physicalDevice, this->surface);
-	this->swapchain = CreateSwapchain(this->WIN_W, this->WIN_H, this->logicalDevice, this->surface, this->swapchainDetails, this->queueFamilies);
-	this->swapImages = GetSwapImages(this->logicalDevice, this->swapchain);
-	this->swapImageViews = CreateImageViews(this->logicalDevice, this->swapImages, this->swapImageFormat);
-	this->renderPass = CreateRenderPass(this->logicalDevice, this->swapImageFormat);
-	this->pipeline = CreateGraphicsPipeline(this->logicalDevice, this->descriptorSetLayout, this->renderPass, this->swapImageSize);
-	this->framebuffers = CreateFramebuffer(this->logicalDevice, this->swapImageViews, this->renderPass, this->swapImageSize);
-	CreateUniformBuffers(this->uniformBuffers, this->uniformBuffersMemory);
+	GetSwapchainDetails(this->physicalDevice, this->swapchainDetails);
+	CreateSwapchain(this->swapchain, this->WIN_W, this->WIN_H);
+	GetSwapImages(this->swapchain, this->swapImages);
+	CreateImageViews();
+	CreateRenderPass();
+	CreateGraphicsPipeline();
+	CreateFramebuffers();
+	CreateUniformBuffers();
 	CreateDescriptorPool();
 	CreateDescriptorSets();
-	this->commandBuffers = CreateCommandBuffers(this->logicalDevice, this->commandPool, this->framebuffers, this->vertexData, this->vertexIndices, this->vertexBuffer, this->indicesBuffer);
+	CreateCommandBuffers();
 }
 
 void Engine::CloseSwapchain() {
@@ -297,88 +294,20 @@ std::vector<char> Engine::ReadFile(const std::string& fileName) {
 	return buffer;
 }
 
-QueueFamilies Engine::GetQueueFamilies(VkPhysicalDevice& physicalDevice, VkSurfaceKHR& surface) {
-	QueueFamilies qf = {};
-
-	uint32_t qfCount = 0;
-	vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &qfCount, nullptr);
-
-	std::vector<VkQueueFamilyProperties> qfProperties(qfCount);
-	vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &qfCount, qfProperties.data());
-
-	int idx = 0;
-
-	for (VkQueueFamilyProperties qfProperty : qfProperties) {
-		if (qfProperty.queueFlags && VK_QUEUE_GRAPHICS_BIT) {
-			qf.graphicsQF = idx;
-			qf.count++;
-		}
-
-		VkBool32 presentSupport = false;
-		vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, idx, surface, &presentSupport);
-
-		if (presentSupport) {
-			qf.presentationQF = idx;
-
-			if (idx != qf.graphicsQF.value()) {
-				qf.count++;
-			}
-		}
-
-		if (qf.isComplete()) {
-			break;
-		}
-
-		idx++;
-	}
-
-	return qf;
-}
-
-SwapchainDetails Engine::GetSwapchainDetails(VkPhysicalDevice& physicalDevice, VkSurfaceKHR& surface) {
-	SwapchainDetails details;
-
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &details.capabilities);
-
-	uint32_t formatsCount = 0;
-	vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatsCount, nullptr);
-
-	if (formatsCount != 0) {
-		details.formats.resize(formatsCount);
-		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatsCount, details.formats.data());
-	}
-	else {
-		throw std::runtime_error("Could not get swapchain format details.");
-	}
-
-	uint32_t presentModesCount = 0;
-	vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModesCount, nullptr);
-
-	if (presentModesCount != 0) {
-		details.presentModes.resize(presentModesCount);
-		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModesCount, details.presentModes.data());
-	}
-	else {
-		throw std::runtime_error("Could not get swapchain present modes details.");
-	}
-
-	return details;
-}
-
-VkSurfaceFormatKHR Engine::GetSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& surfaceFormats) {
-	for (const VkSurfaceFormatKHR surfaceFormat : surfaceFormats) {
+VkSurfaceFormatKHR Engine::GetSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats) {
+	for (const VkSurfaceFormatKHR surfaceFormat : formats) {
 		if (surfaceFormat.format == VK_FORMAT_B8G8R8A8_SRGB && surfaceFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 			return surfaceFormat;
 		}
 	}
 
-	return surfaceFormats[0];
+	return formats[0];
 }
 
 VkPresentModeKHR Engine::GetSurfacePresentMode(const std::vector<VkPresentModeKHR>& presentModes) {
-	for (VkPresentModeKHR presentMode : presentModes) {
-		if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-			return presentMode;
+	for (int i = 0; i < presentModes.size(); i++) {
+		if (presentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+			return presentModes[i];
 		}
 	}
 
@@ -391,7 +320,7 @@ VkExtent2D Engine::GetSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, s
 		return capabilities.currentExtent;
 	}
 	else {
-		VkExtent2D extent = { WIN_W, WIN_H };
+		VkExtent2D extent = { static_cast<uint32_t>(WIN_W), static_cast<uint32_t>(WIN_H) };
 
 		extent.width = max(capabilities.minImageExtent.width, min(capabilities.maxImageExtent.width, extent.width));
 		extent.height = max(capabilities.minImageExtent.height, min(capabilities.maxImageExtent.height, extent.height));
@@ -400,17 +329,46 @@ VkExtent2D Engine::GetSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, s
 	}
 }
 
-std::vector<VkImage> Engine::GetSwapImages(VkDevice& logicalDevice, VkSwapchainKHR& swapchain) {
-	uint32_t swapImageCount = 0;
-	vkGetSwapchainImagesKHR(logicalDevice, swapchain, &swapImageCount, nullptr);
+VkShaderModule Engine::CreateShaderModule(const std::vector<char>& byteCode) {
+	VkShaderModule shaderModule;
 
-	std::vector<VkImage> swapImages(swapImageCount);
-	vkGetSwapchainImagesKHR(logicalDevice, swapchain, &swapImageCount, swapImages.data());
+	VkShaderModuleCreateInfo shaderModuleCreateInfo = {};
+	shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	shaderModuleCreateInfo.codeSize = byteCode.size();
+	shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(byteCode.data());
 
-	return swapImages;
+	VKCheck(*"Could not create shader module.", vkCreateShaderModule(this->logicalDevice, &shaderModuleCreateInfo, nullptr, &shaderModule));
+
+	return shaderModule;
 }
 
-uint32_t Engine::GetMemoryType(VkPhysicalDevice& physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+VkBuffer Engine::CreateBuffer(VkDeviceMemory& bufferMemory, VkDeviceSize& size, VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryPropertyFlagBits) {
+	VkBuffer buffer;
+
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = size;
+	bufferInfo.usage = usageFlags;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VKCheck(*"Could not create buffer.", vkCreateBuffer(this->logicalDevice, &bufferInfo, nullptr, &buffer));
+
+	VkMemoryRequirements memoryRequirements;
+	vkGetBufferMemoryRequirements(this->logicalDevice, buffer, &memoryRequirements);
+
+	VkMemoryAllocateInfo allocateInfo = {};
+	allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocateInfo.allocationSize = memoryRequirements.size;
+	allocateInfo.memoryTypeIndex = GetMemoryType(memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+	VKCheck(*"Could not allocate buffer memory.", vkAllocateMemory(this->logicalDevice, &allocateInfo, nullptr, &bufferMemory));
+
+	vkBindBufferMemory(this->logicalDevice, buffer, bufferMemory, 0);
+
+	return buffer;
+}
+
+uint32_t Engine::GetMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
 	VkPhysicalDeviceMemoryProperties memoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
 
@@ -423,9 +381,75 @@ uint32_t Engine::GetMemoryType(VkPhysicalDevice& physicalDevice, uint32_t typeFi
 	throw std::runtime_error("Could not find an appropriate memory type.");
 }
 
-VkInstance Engine::CreateInstance(const std::vector<const char*>& debugLayers) {
-	VkInstance instance = 0;
+void Engine::GetQueueFamilies() {
+	uint32_t qfCount = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(this->physicalDevice, &qfCount, nullptr);
 
+	std::vector<VkQueueFamilyProperties> qfProperties(qfCount);
+	vkGetPhysicalDeviceQueueFamilyProperties(this->physicalDevice, &qfCount, qfProperties.data());
+
+	int idx = 0;
+
+	for (VkQueueFamilyProperties qfProperty : qfProperties) {
+		if (qfProperty.queueFlags && VK_QUEUE_GRAPHICS_BIT) {
+			this->queueFamilies.graphicsQF = idx;
+			this->queueFamilies.count++;
+		}
+
+		VkBool32 presentSupport = false;
+		vkGetPhysicalDeviceSurfaceSupportKHR(this->physicalDevice, idx, this->surface, &presentSupport);
+
+		if (presentSupport) {
+			this->queueFamilies.presentationQF = idx;
+
+			if (idx != this->queueFamilies.graphicsQF.value()) {
+				this->queueFamilies.count++;
+			}
+		}
+
+		if (this->queueFamilies.isComplete()) {
+			break;
+		}
+
+		idx++;
+	}
+}
+
+void Engine::GetSwapchainDetails(VkPhysicalDevice& physicalDevice, SwapchainDetails& details) {
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, this->surface, &details.capabilities);
+
+	uint32_t formatsCount = 0;
+	vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, this->surface, &formatsCount, nullptr);
+
+	if (formatsCount != 0) {
+		details.formats.resize(formatsCount);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, this->surface, &formatsCount, details.formats.data());
+	}
+	else {
+		throw std::runtime_error("Could not get swapchain format details.");
+	}
+
+	uint32_t presentModesCount = 0;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, this->surface, &presentModesCount, nullptr);
+
+	if (presentModesCount != 0) {
+		details.presentModes.resize(presentModesCount);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, this->surface, &presentModesCount, details.presentModes.data());
+	}
+	else {
+		throw std::runtime_error("Could not get swapchain present modes details.");
+	}
+}
+
+void Engine::GetSwapImages(VkSwapchainKHR& swapchain, std::vector<VkImage>& swapImages) {
+	uint32_t swapImageCount = 0;
+	vkGetSwapchainImagesKHR(this->logicalDevice, swapchain, &swapImageCount, nullptr);
+
+	swapImages.resize(swapImageCount);
+	vkGetSwapchainImagesKHR(this->logicalDevice, swapchain, &swapImageCount, swapImages.data());
+}
+
+void Engine::CreateInstance() {
 	VkApplicationInfo appInfo = {};
 	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	appInfo.apiVersion = VK_API_VERSION_1_2;
@@ -446,40 +470,34 @@ VkInstance Engine::CreateInstance(const std::vector<const char*>& debugLayers) {
 
 #ifdef _DEBUG
 
-	ValidateDebugLayers(debugLayers);
+	ValidateDebugLayers(this->debugLayers);
 
-	createInfo.enabledLayerCount = debugLayers.size();
-	createInfo.ppEnabledLayerNames = debugLayers.data();
+	createInfo.enabledLayerCount = static_cast<uint32_t>(this->debugLayers.size());
+	createInfo.ppEnabledLayerNames = this->debugLayers.data();
 #endif
 
-	VKCheck(*"Could not create instance.", vkCreateInstance(&createInfo, nullptr, &instance));
-
-	return instance;
+	VKCheck(*"Could not create instance.", vkCreateInstance(&createInfo, nullptr, &this->instance));
 }
 
-VkSurfaceKHR Engine::CreateWindowSurface(VkInstance& instance, GLFWwindow* window) {
-	VkSurfaceKHR SFC;
-
+void Engine::CreateWindowSurface() {
 	VkWin32SurfaceCreateInfoKHR winCreateSurfaceInfo = {};
 	winCreateSurfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	winCreateSurfaceInfo.hinstance = GetModuleHandle(0);
-	winCreateSurfaceInfo.hwnd = glfwGetWin32Window(window);
+	winCreateSurfaceInfo.hwnd = glfwGetWin32Window(this->window);
 
-	VKCheck(*"Could not create Win32 surface.", vkCreateWin32SurfaceKHR(instance, &winCreateSurfaceInfo, nullptr, &SFC));
-
-	return SFC;
+	VKCheck(*"Could not create Win32 surface.", vkCreateWin32SurfaceKHR(this->instance, &winCreateSurfaceInfo, nullptr, &this->surface));
 }
 
-VkPhysicalDevice Engine::CreatePhysicalDevice(VkInstance& instance, VkSurfaceKHR& surface, const std::vector<const char*> deviceExtensions) {
+void Engine::CreatePhysicalDevice() {
 	uint32_t physicalDeviceCount = 0;
-	vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
+	vkEnumeratePhysicalDevices(this->instance, &physicalDeviceCount, nullptr);
 
 	if (physicalDeviceCount == 0) {
 		throw std::runtime_error("Could not find any compatible device (1).");
 	}
 
 	std::vector<VkPhysicalDevice> physicalDevices(physicalDeviceCount);
-	vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, physicalDevices.data());
+	vkEnumeratePhysicalDevices(this->instance, &physicalDeviceCount, physicalDevices.data());
 
 	for (VkPhysicalDevice device : physicalDevices) {
 		VkPhysicalDeviceProperties physicalDeviceProperties;
@@ -487,12 +505,13 @@ VkPhysicalDevice Engine::CreatePhysicalDevice(VkInstance& instance, VkSurfaceKHR
 		vkGetPhysicalDeviceProperties(device, &physicalDeviceProperties);
 		vkGetPhysicalDeviceFeatures(device, &physicalDeviceFeatures);
 
-		if (!ValidateDeviceExtensions(device, deviceExtensions)) {
+		if (!ValidateDeviceExtensions(device, this->deviceExtensions)) {
 			continue;
 		}
 
 		bool supportsSwapchain = false;
-		SwapchainDetails details = GetSwapchainDetails(device, surface);
+		SwapchainDetails details = {};
+		GetSwapchainDetails(device, details);
 
 		if (!details.formats.empty() && !details.presentModes.empty()) {
 			supportsSwapchain = true;
@@ -500,7 +519,8 @@ VkPhysicalDevice Engine::CreatePhysicalDevice(VkInstance& instance, VkSurfaceKHR
 
 		if (supportsSwapchain && physicalDeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
 			std::cout << "Using GPU: " << physicalDeviceProperties.deviceName << std::endl;
-			return device;
+			this->physicalDevice = device;
+			return;
 		}
 	}
 
@@ -508,22 +528,22 @@ VkPhysicalDevice Engine::CreatePhysicalDevice(VkInstance& instance, VkSurfaceKHR
 		VkPhysicalDeviceProperties physicalDeviceProperties;
 		vkGetPhysicalDeviceProperties(physicalDevices[0], &physicalDeviceProperties);
 		std::cout << "Using Fallback Device: " << physicalDeviceProperties.deviceName << std::endl;
-		return physicalDevices[0];
+		this->physicalDevice = physicalDevices[0];
+		return;
 	}
 	else {
 		throw std::runtime_error("Could not find a physical device compatible device (2).");
 	}
 }
 
-VkDevice Engine::CreateLogicalDevice(VkPhysicalDevice& physicalDevice, QueueFamilies& qf, const std::vector<const char*>& deviceExtensions) {
-	if (!qf.isComplete()) {
+void Engine::CreateLogicalDevice() {
+	if (!this->queueFamilies.isComplete()) {
 		throw std::runtime_error("Device is not compatible. Queue families are not complete.");
 	}
 
-	VkDevice device = 0;
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 
-	std::set<uint32_t> qfs = { qf.graphicsQF.value(), qf.presentationQF.value() };
+	std::set<uint32_t> qfs = { this->queueFamilies.graphicsQF.value(), this->queueFamilies.presentationQF.value() };
 
 	float priority = 1.0f;
 	for (uint32_t qf : qfs) {
@@ -540,31 +560,29 @@ VkDevice Engine::CreateLogicalDevice(VkPhysicalDevice& physicalDevice, QueueFami
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
 	deviceCreateInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 
-	deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
-	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+	deviceCreateInfo.ppEnabledExtensionNames = this->deviceExtensions.data();
+	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(this->deviceExtensions.size());
 
-	VKCheck(*"Could not create device.", vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device));
+	VKCheck(*"Could not create device.", vkCreateDevice(this->physicalDevice, &deviceCreateInfo, nullptr, &this->logicalDevice));
 
-	vkGetDeviceQueue(device, qf.graphicsQF.value(), 0, &this->graphicsQueue);
-	vkGetDeviceQueue(device, qf.presentationQF.value(), 0, &this->presentationQueue);
-
-	return device;
+	vkGetDeviceQueue(this->logicalDevice, this->queueFamilies.graphicsQF.value(), 0, &this->graphicsQueue);
+	vkGetDeviceQueue(this->logicalDevice, this->queueFamilies.presentationQF.value(), 0, &this->presentationQueue);
 }
 
-VkSwapchainKHR Engine::CreateSwapchain(size_t& WIN_W, size_t& WIN_H, VkDevice& device, VkSurfaceKHR& surface, SwapchainDetails& swapChainDetails, QueueFamilies& qf) {
-	VkSurfaceFormatKHR surfaceFormat = GetSurfaceFormat(swapChainDetails.formats);
-	VkPresentModeKHR presentMode = GetSurfacePresentMode(swapChainDetails.presentModes);
-	VkExtent2D swapExtent = GetSwapExtent(swapChainDetails.capabilities, WIN_W, WIN_H);
+void Engine::CreateSwapchain(VkSwapchainKHR& swapchain, size_t& WIN_W, size_t& WIN_H) {
+	VkSurfaceFormatKHR surfaceFormat = GetSurfaceFormat(this->swapchainDetails.formats);
+	VkPresentModeKHR presentMode = GetSurfacePresentMode(this->swapchainDetails.presentModes);
+	VkExtent2D swapExtent = GetSwapExtent(this->swapchainDetails.capabilities, WIN_W, WIN_H);
 
-	uint32_t imageCount = swapChainDetails.capabilities.minImageCount + 1;
+	uint32_t imageCount = this->swapchainDetails.capabilities.minImageCount + 1;
 
-	if (swapChainDetails.capabilities.maxImageCount > 0 && imageCount > swapChainDetails.capabilities.maxImageCount) {
-		imageCount = swapChainDetails.capabilities.maxImageCount;
+	if (this->swapchainDetails.capabilities.maxImageCount > 0 && imageCount > this->swapchainDetails.capabilities.maxImageCount) {
+		imageCount = this->swapchainDetails.capabilities.maxImageCount;
 	}
 
 	VkSwapchainCreateInfoKHR swapChainCreateInfo = {};
 	swapChainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-	swapChainCreateInfo.surface = surface;
+	swapChainCreateInfo.surface = this->surface;
 	swapChainCreateInfo.minImageCount = imageCount;
 	swapChainCreateInfo.imageFormat = surfaceFormat.format;
 	swapChainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -573,13 +591,13 @@ VkSwapchainKHR Engine::CreateSwapchain(size_t& WIN_W, size_t& WIN_H, VkDevice& d
 	swapChainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 	swapChainCreateInfo.presentMode = presentMode;
 	swapChainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-	swapChainCreateInfo.preTransform = swapChainDetails.capabilities.currentTransform;
+	swapChainCreateInfo.preTransform = this->swapchainDetails.capabilities.currentTransform;
 	swapChainCreateInfo.clipped = VK_TRUE;
 	swapChainCreateInfo.oldSwapchain = VK_NULL_HANDLE;
 
-	uint32_t indices[2] = { qf.graphicsQF.value(), qf.presentationQF.value() };
+	uint32_t indices[2] = { this->queueFamilies.graphicsQF.value(), this->queueFamilies.presentationQF.value() };
 
-	if (qf.graphicsQF.value() != qf.presentationQF.value()) {
+	if (this->queueFamilies.graphicsQF.value() != this->queueFamilies.presentationQF.value()) {
 		swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 		swapChainCreateInfo.queueFamilyIndexCount = 2;
 		swapChainCreateInfo.pQueueFamilyIndices = indices;
@@ -590,27 +608,22 @@ VkSwapchainKHR Engine::CreateSwapchain(size_t& WIN_W, size_t& WIN_H, VkDevice& d
 		swapChainCreateInfo.pQueueFamilyIndices = nullptr;
 	}
 
-	VkSwapchainKHR swapChain = 0;
-
-	VKCheck(*"Could not create swapchain.", vkCreateSwapchainKHR(device, &swapChainCreateInfo, nullptr, &swapChain));
+	VKCheck(*"Could not create swapchain.", vkCreateSwapchainKHR(this->logicalDevice, &swapChainCreateInfo, nullptr, &swapchain));
 
 	this->swapImageFormat = swapChainCreateInfo.imageFormat;
 	this->swapImageSize = swapChainCreateInfo.imageExtent;
-
-	return swapChain;
 }
 
-std::vector<VkImageView> Engine::CreateImageViews(VkDevice& device, std::vector<VkImage>& images, VkFormat& imageFormat) {
-
-	std::vector<VkImageView> imageViews(images.size());
+void Engine::CreateImageViews() {
+	this->swapImageViews.resize(this->swapImages.size());
 
 	uint32_t idx = 0;
-	for (VkImage image : images) {
+	for (VkImage image : this->swapImages) {
 		VkImageViewCreateInfo imageViewCreateInfo = { };
 		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		imageViewCreateInfo.image = image;
 		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		imageViewCreateInfo.format = imageFormat;
+		imageViewCreateInfo.format = this->swapImageFormat;
 		imageViewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 		imageViewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 		imageViewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -621,33 +634,14 @@ std::vector<VkImageView> Engine::CreateImageViews(VkDevice& device, std::vector<
 		imageViewCreateInfo.subresourceRange.layerCount = 1;
 		imageViewCreateInfo.subresourceRange.levelCount = 1;
 
-		VkImageView imageView;
-		vkCreateImageView(device, &imageViewCreateInfo, nullptr, &imageViews[idx]);
-
+		vkCreateImageView(this->logicalDevice, &imageViewCreateInfo, nullptr, &this->swapImageViews[idx]);
 		idx++;
 	}
-
-	return imageViews;
 }
 
-VkShaderModule Engine::CreateShaderModule(VkDevice& device, const std::vector<char>& byteCode) {
-	VkShaderModule shaderModule;
-
-	VkShaderModuleCreateInfo shaderModuleCreateInfo = {};
-	shaderModuleCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	shaderModuleCreateInfo.codeSize = byteCode.size();
-	shaderModuleCreateInfo.pCode = reinterpret_cast<const uint32_t*>(byteCode.data());
-
-	VKCheck(*"Could not create shader module.", vkCreateShaderModule(device, &shaderModuleCreateInfo, nullptr, &shaderModule));
-
-	return shaderModule;
-}
-
-VkRenderPass Engine::CreateRenderPass(VkDevice& logicalDevice, VkFormat& format) {
-	VkRenderPass renderPass = {};
-
+void Engine::CreateRenderPass() {
 	VkAttachmentDescription colorAttachment = {};
-	colorAttachment.format = format;
+	colorAttachment.format = this->swapImageFormat;
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -683,12 +677,10 @@ VkRenderPass Engine::CreateRenderPass(VkDevice& logicalDevice, VkFormat& format)
 	renderPassInfo.dependencyCount = 1;
 	renderPassInfo.pDependencies = &subpassDependency;
 
-	VKCheck(*"Could not create render pass.", vkCreateRenderPass(logicalDevice, &renderPassInfo, nullptr, &renderPass));
-
-	return renderPass;
+	VKCheck(*"Could not create render pass.", vkCreateRenderPass(this->logicalDevice, &renderPassInfo, nullptr, &this->renderPass));
 }
 
-VkDescriptorSetLayout Engine::CreateDescriptorSetLayout(VkDevice& logicalDevice) {
+void Engine::CreateDescriptorSetLayout() {
 	VkDescriptorSetLayoutBinding layoutBinding = {};
 	layoutBinding.binding = 0;
 	layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -703,19 +695,15 @@ VkDescriptorSetLayout Engine::CreateDescriptorSetLayout(VkDevice& logicalDevice)
 	layoutInfo.bindingCount = 1;
 	layoutInfo.pBindings = bindings;
 
-	VkDescriptorSetLayout layout;
-
-	VKCheck(*"Could not create descriptor set layout.", vkCreateDescriptorSetLayout(logicalDevice, &layoutInfo, nullptr, &layout));
-
-	return layout;
+	VKCheck(*"Could not create descriptor set layout.", vkCreateDescriptorSetLayout(this->logicalDevice, &layoutInfo, nullptr, &this->descriptorSetLayout));
 }
 
-VkPipeline Engine::CreateGraphicsPipeline(VkDevice& device, VkDescriptorSetLayout& descriptorLayout, VkRenderPass& renderPass, VkExtent2D& extent) {
+void Engine::CreateGraphicsPipeline() {
 	std::vector<char> shaderVert = ReadFile("shaders/vert.spv");
 	std::vector<char> shaderFrag = ReadFile("shaders/frag.spv");
 
-	VkShaderModule shaderVertModule = CreateShaderModule(logicalDevice, shaderVert);
-	VkShaderModule shaderFragModule = CreateShaderModule(logicalDevice, shaderFrag);
+	VkShaderModule shaderVertModule = CreateShaderModule(shaderVert);
+	VkShaderModule shaderFragModule = CreateShaderModule(shaderFrag);
  
 	VkPipelineShaderStageCreateInfo shaderStageCreateInfo = {};
 	shaderStageCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -749,13 +737,13 @@ VkPipeline Engine::CreateGraphicsPipeline(VkDevice& device, VkDescriptorSetLayou
 	VkViewport viewPort = {};
 	viewPort.x = 0.0f;
 	viewPort.y = 0.0f;
-	viewPort.width = (float)extent.width;
-	viewPort.height = (float)extent.height;
+	viewPort.width = (float)this->swapImageSize.width;
+	viewPort.height = (float)this->swapImageSize.height;
 	viewPort.minDepth = 0.0f;
 	viewPort.maxDepth = 1.0f;
 
 	VkRect2D scissor = {};
-	scissor.extent = extent;
+	scissor.extent = this->swapImageSize;
 
 	VkPipelineViewportStateCreateInfo viewPortStateInfo = {};
 	viewPortStateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -812,13 +800,11 @@ VkPipeline Engine::CreateGraphicsPipeline(VkDevice& device, VkDescriptorSetLayou
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutInfo.pPushConstantRanges = nullptr;
-	pipelineLayoutInfo.pSetLayouts = &descriptorLayout;
+	pipelineLayoutInfo.pSetLayouts = &this->descriptorSetLayout;
 	pipelineLayoutInfo.setLayoutCount = 1;
 	pipelineLayoutInfo.pushConstantRangeCount = 0;
 
-	VKCheck(*"Could not create pipeline layout.", vkCreatePipelineLayout(logicalDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout));
-
-	this->pipelineLayout = pipelineLayout;
+	VKCheck(*"Could not create pipeline layout.", vkCreatePipelineLayout(this->logicalDevice, &pipelineLayoutInfo, nullptr, &this->pipelineLayout));
 
 	VkGraphicsPipelineCreateInfo graphicsPipelineInfo = {};
 	graphicsPipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -838,75 +824,38 @@ VkPipeline Engine::CreateGraphicsPipeline(VkDevice& device, VkDescriptorSetLayou
 	graphicsPipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	graphicsPipelineInfo.basePipelineIndex = -1;
 
-	VkPipeline pipeline = 0;
+	VKCheck(*"Could not create graphics pipeline.", vkCreateGraphicsPipelines(this->logicalDevice, VK_NULL_HANDLE, 1, &graphicsPipelineInfo, nullptr, &this->pipeline));
 
-	VKCheck(*"Could not create graphics pipeline.", vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &graphicsPipelineInfo, nullptr, &pipeline));
-
-	vkDestroyShaderModule(device, shaderVertModule, nullptr);
-	vkDestroyShaderModule(device, shaderFragModule, nullptr);
-
-	return pipeline;
+	vkDestroyShaderModule(this->logicalDevice, shaderVertModule, nullptr);
+	vkDestroyShaderModule(this->logicalDevice, shaderFragModule, nullptr);
 }
 
-std::vector<VkFramebuffer> Engine::CreateFramebuffer(VkDevice& device, std::vector<VkImageView>& imageViews, VkRenderPass& renderPass, VkExtent2D& extent) {
-	std::vector<VkFramebuffer> frameBuffer(imageViews.size());
+void Engine::CreateFramebuffers() {
+	this->framebuffers.resize(this->swapImageViews.size());
 
 	uint32_t idx = 0;
-	for (VkImageView imageView : imageViews) {
+	for (VkImageView imageView : this->swapImageViews) {
 		VkFramebufferCreateInfo frameBufferInfo = {};
 		frameBufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		frameBufferInfo.renderPass = renderPass;
+		frameBufferInfo.renderPass = this->renderPass;
 		frameBufferInfo.attachmentCount = 1;
 		frameBufferInfo.pAttachments = &imageView;
-		frameBufferInfo.width = extent.width;
-		frameBufferInfo.height = extent.height;
+		frameBufferInfo.width = this->swapImageSize.width;
+		frameBufferInfo.height = this->swapImageSize.height;
 		frameBufferInfo.layers = 1;
 
-		VKCheck(*"Could not create framebuffer.", vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &frameBuffer[idx]));
-
+		VKCheck(*"Could not create framebuffer.", vkCreateFramebuffer(this->logicalDevice, &frameBufferInfo, nullptr, &this->framebuffers[idx]));
 		idx++;
 	}
-
-	return frameBuffer;
 }
 
-VkCommandPool Engine::CreateCommandPool(VkDevice& device, uint32_t& familyIndex) {
-	VkCommandPool commandPool = 0;
-
+void Engine::CreateCommandPool(VkCommandPool& commandPool, uint32_t& familyIndex) {
 	VkCommandPoolCreateInfo commandPoolCreateInfo = {};
 	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	commandPoolCreateInfo.flags = 0;
 	commandPoolCreateInfo.queueFamilyIndex = familyIndex;
 
-	VKCheck(*"Could not create command pool.", vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, &commandPool));
-
-	return commandPool;
-}
-
-VkBuffer Engine::CreateBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkDeviceMemory& bufferMemory, VkDeviceSize& size, VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryPropertyFlagBits) {
-	VkBuffer buffer;
-
-	VkBufferCreateInfo bufferInfo = {};
-	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	bufferInfo.size = size;
-	bufferInfo.usage = usageFlags;
-	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-	VKCheck(*"Could not create buffer.", vkCreateBuffer(logicalDevice, &bufferInfo, nullptr, &buffer));
-
-	VkMemoryRequirements memoryRequirements;
-	vkGetBufferMemoryRequirements(logicalDevice, buffer, &memoryRequirements);
-
-	VkMemoryAllocateInfo allocateInfo = {};
-	allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	allocateInfo.allocationSize = memoryRequirements.size;
-	allocateInfo.memoryTypeIndex = GetMemoryType(physicalDevice, memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-	VKCheck(*"Could not allocate buffer memory.", vkAllocateMemory(logicalDevice, &allocateInfo, nullptr, &bufferMemory));
-
-	vkBindBufferMemory(logicalDevice, buffer, bufferMemory, 0);
-
-	return buffer;
+	VKCheck(*"Could not create command pool.", vkCreateCommandPool(this->logicalDevice, &commandPoolCreateInfo, nullptr, &commandPool));
 }
 
 void Engine::CopyBuffer(VkDevice& logicalDevice, VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize& size, VkCommandPool& commandPool) {
@@ -943,55 +892,53 @@ void Engine::CopyBuffer(VkDevice& logicalDevice, VkBuffer& srcBuffer, VkBuffer& 
 	vkFreeCommandBuffers(logicalDevice, commandPool, 1, &commandBuffer);
 }
 
-VkDeviceMemory Engine::CreateVertexBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkBuffer& vertexBuffer, std::vector<Vertex>& vertexData, VkCommandPool& copyPool) {
-	VkDeviceSize stagingBufferSize = sizeof(vertexData[0]) * vertexData.size();
+void Engine::CreateVertexBuffer() {
+	VkDeviceSize stagingBufferSize = sizeof(this->vertexData[0]) * this->vertexData.size();
 	VkDeviceMemory stagingBufferMemory = 0;
 	VkBuffer stagingBuffer = 0;
-	stagingBuffer = CreateBuffer(logicalDevice, physicalDevice, stagingBufferMemory, stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+	stagingBuffer = CreateBuffer(stagingBufferMemory, stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
 	void* data;
-	vkMapMemory(logicalDevice, stagingBufferMemory, 0, stagingBufferSize, 0, &data);
-	memcpy(data, vertexData.data(), (size_t) stagingBufferSize);
-	vkUnmapMemory(logicalDevice, stagingBufferMemory);
+	vkMapMemory(this->logicalDevice, stagingBufferMemory, 0, stagingBufferSize, 0, &data);
+	memcpy(data, this->vertexData.data(), (size_t) stagingBufferSize);
+	vkUnmapMemory(this->logicalDevice, stagingBufferMemory);
 
 	VkDeviceSize vertexBufferSize = stagingBufferSize;
 	VkDeviceMemory vertexBufferMemory = 0;
-	vertexBuffer = CreateBuffer(logicalDevice, physicalDevice, vertexBufferMemory, vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	this->vertexBuffer = CreateBuffer(vertexBufferMemory, vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	this->vertexMemory = vertexBufferMemory;
 
-	CopyBuffer(logicalDevice, stagingBuffer, vertexBuffer, vertexBufferSize, copyPool);
-	vkDestroyBuffer(logicalDevice, stagingBuffer, nullptr);
-	vkFreeMemory(logicalDevice, stagingBufferMemory, nullptr);
-
-	return vertexBufferMemory;
+	CopyBuffer(this->logicalDevice, stagingBuffer, this->vertexBuffer, vertexBufferSize, this->copyPool);
+	vkDestroyBuffer(this->logicalDevice, stagingBuffer, nullptr);
+	vkFreeMemory(this->logicalDevice, stagingBufferMemory, nullptr);
 }
 
-VkDeviceMemory Engine::CreateIndicesBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkBuffer& indicesBuffer, std::vector<uint16_t>& indices, VkCommandPool& copyPool) {
-	VkDeviceSize stagingBufferSize = sizeof(indices[0]) * indices.size();
+void Engine::CreateIndicesBuffer() {
+	VkDeviceSize stagingBufferSize = sizeof(this->vertexIndices[0]) * this->vertexIndices.size();
 	VkDeviceMemory stagingBufferMemory = 0;
 	VkBuffer stagingBuffer = 0;
-	stagingBuffer = CreateBuffer(logicalDevice, physicalDevice, stagingBufferMemory, stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+	stagingBuffer = CreateBuffer(stagingBufferMemory, stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
 	void* data;
-	vkMapMemory(logicalDevice, stagingBufferMemory, 0, stagingBufferSize, 0, &data);
-	memcpy(data, indices.data(), (size_t)stagingBufferSize);
-	vkUnmapMemory(logicalDevice, stagingBufferMemory);
+	vkMapMemory(this->logicalDevice, stagingBufferMemory, 0, stagingBufferSize, 0, &data);
+	memcpy(data, this->vertexIndices.data(), (size_t)stagingBufferSize);
+	vkUnmapMemory(this->logicalDevice, stagingBufferMemory);
 
 	VkDeviceSize indicesBufferSize = stagingBufferSize;
 	VkDeviceMemory indicesBufferMemory = 0;
-	indicesBuffer = CreateBuffer(logicalDevice, physicalDevice, indicesBufferMemory, indicesBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	this->indicesBuffer = CreateBuffer(indicesBufferMemory, indicesBufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	this->indicesMemory = indicesBufferMemory;
 
-	CopyBuffer(logicalDevice, stagingBuffer, indicesBuffer, indicesBufferSize, copyPool);
-	vkDestroyBuffer(logicalDevice, stagingBuffer, nullptr);
-	vkFreeMemory(logicalDevice, stagingBufferMemory, nullptr);
-
-	return indicesBufferMemory;
+	CopyBuffer(this->logicalDevice, stagingBuffer, this->indicesBuffer, indicesBufferSize, this->copyPool);
+	vkDestroyBuffer(this->logicalDevice, stagingBuffer, nullptr);
+	vkFreeMemory(this->logicalDevice, stagingBufferMemory, nullptr);
 }
 
-void Engine::CreateUniformBuffers(std::vector<VkBuffer>& uniformBuffers, std::vector<VkDeviceMemory>& uniformBuffersMemory) {
+void Engine::CreateUniformBuffers() {
 	VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
-	uniformBuffers.resize(this->swapImages.size());
-	uniformBuffersMemory.resize(this->swapImages.size());
+	this->uniformBuffers.resize(this->swapImages.size());
+	this->uniformBuffersMemory.resize(this->swapImages.size());
 
 	UniformBufferObject obj = {  };
 	obj.model = glm::mat4x4(0.0f);
@@ -999,7 +946,7 @@ void Engine::CreateUniformBuffers(std::vector<VkBuffer>& uniformBuffers, std::ve
 	obj.projection = glm::mat4x4(1.0f);
 
 	for (int i = 0; i < this->swapImages.size(); i++) {
-		uniformBuffers[i] = CreateBuffer(this->logicalDevice, this->physicalDevice, uniformBuffersMemory[i], bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+		this->uniformBuffers[i] = CreateBuffer(this->uniformBuffersMemory[i], bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 	}
 }
 
@@ -1051,60 +998,57 @@ void Engine::CreateDescriptorSets() {
 
 }
 
-std::vector<VkCommandBuffer> Engine::CreateCommandBuffers(VkDevice& logicalDevice, VkCommandPool& commandPool, std::vector<VkFramebuffer>& framebuffers, std::vector<Vertex>& vertexData, std::vector<uint16_t>& vertexIndices, VkBuffer& vertexBuffer, VkBuffer& indicesBuffer) {
-	std::vector<VkCommandBuffer> commandBuffers(framebuffers.size());
+void Engine::CreateCommandBuffers() {
+	this->commandBuffers.resize(this->framebuffers.size());
 
 	VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
 	commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	commandBufferAllocateInfo.commandPool = commandPool;
+	commandBufferAllocateInfo.commandPool = this->commandPool;
 	commandBufferAllocateInfo.commandBufferCount = (uint32_t)commandBuffers.size();
 	commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-	VKCheck(*"Could not allocate command buffers.", vkAllocateCommandBuffers(logicalDevice, &commandBufferAllocateInfo, commandBuffers.data()));
+	VKCheck(*"Could not allocate command buffers.", vkAllocateCommandBuffers(this->logicalDevice, &commandBufferAllocateInfo, this->commandBuffers.data()));
 
 	VkClearValue clearColor = { 0.25f, 0.50f, 0.75f, 1.0f };
 
-	for (size_t i = 0; i < commandBuffers.size(); i++) {
+	for (size_t i = 0; i < this->commandBuffers.size(); i++) {
 		VkCommandBufferBeginInfo commandBufferBeginInfo = {};
 		commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		commandBufferBeginInfo.pInheritanceInfo = nullptr;
 		commandBufferBeginInfo.flags = 0;
 
-		VKCheck(*"Could not begin command buffer.", vkBeginCommandBuffer(commandBuffers[i], &commandBufferBeginInfo));
+		VKCheck(*"Could not begin command buffer.", vkBeginCommandBuffer(this->commandBuffers[i], &commandBufferBeginInfo));
 
 		VkRenderPassBeginInfo renderPassBeginInfo = {};
 		renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		renderPassBeginInfo.framebuffer = framebuffers[i];
+		renderPassBeginInfo.framebuffer = this->framebuffers[i];
 		renderPassBeginInfo.renderPass = this->renderPass;
 		renderPassBeginInfo.renderArea.extent = this->swapImageSize;
 		renderPassBeginInfo.renderArea.offset = { 0, 0 };
 		renderPassBeginInfo.clearValueCount = 1;
 		renderPassBeginInfo.pClearValues = &clearColor;
 
-		vkCmdBeginRenderPass(commandBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
+		vkCmdBeginRenderPass(this->commandBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBindPipeline(this->commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipeline);
 
-		VkBuffer vertexBuffers[] = { vertexBuffer };
+		VkBuffer vertexBuffers[] = { this->vertexBuffer };
 		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
-		vkCmdBindIndexBuffer(commandBuffers[i], indicesBuffer, 0, VK_INDEX_TYPE_UINT16);
+		vkCmdBindVertexBuffers(this->commandBuffers[i], 0, 1, vertexBuffers, offsets);
+		vkCmdBindIndexBuffer(this->commandBuffers[i], this->indicesBuffer, 0, VK_INDEX_TYPE_UINT16);
 
-		vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelineLayout, 0, 1, &this->descriptorSets[i], 0, nullptr);
+		vkCmdBindDescriptorSets(this->commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, this->pipelineLayout, 0, 1, &this->descriptorSets[i], 0, nullptr);
 
-		vkCmdDrawIndexed(commandBuffers[i], static_cast<uint32_t>(vertexIndices.size()), 1, 0, 0, 0);
-		vkCmdEndRenderPass(commandBuffers[i]);
-		VKCheck(*"Failed to record command buffer.", vkEndCommandBuffer(commandBuffers[i]));
+		vkCmdDrawIndexed(this->commandBuffers[i], static_cast<uint32_t>(this->vertexIndices.size()), 1, 0, 0, 0);
+		vkCmdEndRenderPass(this->commandBuffers[i]);
+		VKCheck(*"Failed to record command buffer.", vkEndCommandBuffer(this->commandBuffers[i]));
 	}
-
-	return commandBuffers;
 }
 
-void Engine::CreateSyncObjects(std::vector<VkSemaphore>& imageAvailableSemaphores, std::vector<VkSemaphore>& imageRenderedSemaphores, std::vector<VkFence>& inFlightFences, std::vector<VkFence>& imagesInFlight) {
-
-	imageAvailableSemaphores.resize(this->MAX_CONCURRENT_FRAMES);
-	imageRenderedSemaphores.resize(this->MAX_CONCURRENT_FRAMES);
-	inFlightFences.resize(this->MAX_CONCURRENT_FRAMES);
-	imagesInFlight.resize(this->swapImages.size(), VK_NULL_HANDLE);
+void Engine::CreateSyncObjects() {
+	this->imagesAvailableSemaphores.resize(this->MAX_CONCURRENT_FRAMES);
+	this->imagesRenderedSemaphores.resize(this->MAX_CONCURRENT_FRAMES);
+	this->inFlightFences.resize(this->MAX_CONCURRENT_FRAMES);
+	this->imagesInFlight.resize(this->swapImages.size(), VK_NULL_HANDLE);
 
 	VkSemaphoreCreateInfo semaphoreCreateInfo = {};
 	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -1114,8 +1058,8 @@ void Engine::CreateSyncObjects(std::vector<VkSemaphore>& imageAvailableSemaphore
 	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 	for (size_t i = 0; i < this->MAX_CONCURRENT_FRAMES; i++) {
-		VKCheck(*"Could not create signal sempahores.", vkCreateSemaphore(this->logicalDevice, &semaphoreCreateInfo, nullptr, &imageAvailableSemaphores[i]));
-		VKCheck(*"Could not create wait sempahores.", vkCreateSemaphore(this->logicalDevice, &semaphoreCreateInfo, nullptr, &imageRenderedSemaphores[i]));
-		VKCheck(*"Could not create working fences.", vkCreateFence(this->logicalDevice, &fenceCreateInfo, nullptr, &inFlightFences[i]));
+		VKCheck(*"Could not create signal sempahores.", vkCreateSemaphore(this->logicalDevice, &semaphoreCreateInfo, nullptr, &this->imagesAvailableSemaphores[i]));
+		VKCheck(*"Could not create wait sempahores.", vkCreateSemaphore(this->logicalDevice, &semaphoreCreateInfo, nullptr, &this->imagesRenderedSemaphores[i]));
+		VKCheck(*"Could not create working fences.", vkCreateFence(this->logicalDevice, &fenceCreateInfo, nullptr, &this->inFlightFences[i]));
 	}
 }

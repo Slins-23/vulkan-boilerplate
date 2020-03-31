@@ -159,7 +159,7 @@ public:
 	Engine();
 	~Engine();
 
-	bool VKCheck(const char& message, VkResult result);
+	void VKCheck(const char& message, VkResult result);
 
 	void Load();
 	void Start();
@@ -178,33 +178,35 @@ public:
 
 	std::vector<char> ReadFile(const std::string& fileName);
 
-	QueueFamilies GetQueueFamilies(VkPhysicalDevice& physicalDevice, VkSurfaceKHR& surface);
-	SwapchainDetails GetSwapchainDetails(VkPhysicalDevice& physicalDevice, VkSurfaceKHR& surface);
-	VkSurfaceFormatKHR GetSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& surfaceFormats);
+	VkShaderModule CreateShaderModule(const std::vector<char>& byteCode);
+	VkBuffer CreateBuffer(VkDeviceMemory& bufferMemory, VkDeviceSize& size, VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryPropertyFlagBits);
+
+	VkSurfaceFormatKHR GetSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats);
 	VkPresentModeKHR GetSurfacePresentMode(const std::vector<VkPresentModeKHR>& presentModes);
 	VkExtent2D GetSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, size_t& WIN_W, size_t& WIN_H);
-	std::vector<VkImage> GetSwapImages(VkDevice& logicalDevice, VkSwapchainKHR& swapchain);
-	uint32_t GetMemoryType(VkPhysicalDevice& physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
+	uint32_t GetMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+	void GetQueueFamilies();
+	void GetSwapImages(VkSwapchainKHR& swapchain, std::vector<VkImage>& swapImages);
+	void GetSwapchainDetails(VkPhysicalDevice& physicalDevice, SwapchainDetails& details);
 
-	VkInstance CreateInstance(const std::vector<const char*>& debugLayers);
-	VkSurfaceKHR CreateWindowSurface(VkInstance& instance, GLFWwindow* window);
-	VkPhysicalDevice CreatePhysicalDevice(VkInstance& instance, VkSurfaceKHR& surface, const std::vector<const char*> deviceExtensions);
-	VkDevice CreateLogicalDevice(VkPhysicalDevice& physicalDevice, QueueFamilies& qf, const std::vector<const char*>& deviceExtensions);
-	VkSwapchainKHR CreateSwapchain(size_t& WIN_W, size_t& WIN_H, VkDevice& device, VkSurfaceKHR& surface, SwapchainDetails& swapChainDetails, QueueFamilies& qf);
-	std::vector<VkImageView> CreateImageViews(VkDevice& device, std::vector<VkImage>& images, VkFormat& imageFormat);
-	VkShaderModule CreateShaderModule(VkDevice& logicalDevice, const std::vector<char>& byteCode);
-	VkRenderPass CreateRenderPass(VkDevice& logicalDevice, VkFormat& format);
-	VkDescriptorSetLayout CreateDescriptorSetLayout(VkDevice& logicalDevice);
-	VkPipeline CreateGraphicsPipeline(VkDevice& device, VkDescriptorSetLayout& descriptorLayout, VkRenderPass& renderPass, VkExtent2D& extent);
-	std::vector<VkFramebuffer> CreateFramebuffer(VkDevice& logicalDevice, std::vector<VkImageView>& imageViews, VkRenderPass& renderPass, VkExtent2D& extent);
-	VkCommandPool CreateCommandPool(VkDevice& device, uint32_t& familyIndex);
-	VkBuffer CreateBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkDeviceMemory& bufferMemory, VkDeviceSize& size, VkBufferUsageFlags usageFlags, VkMemoryPropertyFlags memoryPropertyFlagBits);
+
+	void CreateInstance();
+	void CreateWindowSurface();
+	void CreatePhysicalDevice();
+	void CreateLogicalDevice();
+	void CreateSwapchain(VkSwapchainKHR& swapchain, size_t& WIN_W, size_t& WIN_H);
+	void CreateImageViews();
+	void CreateRenderPass();
+	void CreateDescriptorSetLayout();
+	void CreateGraphicsPipeline();
+	void CreateFramebuffers();
+	void CreateCommandPool(VkCommandPool& commandPool, uint32_t& familyIndex);
 	void CopyBuffer(VkDevice& logicalDevice, VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize& size, VkCommandPool& commandPool);
-	VkDeviceMemory CreateVertexBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkBuffer& vertexBuffer, std::vector<Vertex>& vertexData, VkCommandPool& copyPool);
-	VkDeviceMemory CreateIndicesBuffer(VkDevice& logicalDevice, VkPhysicalDevice& physicalDevice, VkBuffer& indicesBuffer, std::vector<uint16_t>& indices, VkCommandPool& copyPool);
-	void CreateUniformBuffers(std::vector<VkBuffer>& uniformBuffers, std::vector<VkDeviceMemory>& uniformBuffersMemory);
+	void CreateVertexBuffer();
+	void CreateIndicesBuffer();
+	void CreateUniformBuffers();
 	void CreateDescriptorPool();
 	void CreateDescriptorSets();
-	std::vector<VkCommandBuffer> CreateCommandBuffers(VkDevice& logicalDevice, VkCommandPool& commandPool, std::vector<VkFramebuffer>& framebuffers, std::vector<Vertex>& vertexData, std::vector<uint16_t>& vertexIndices, VkBuffer& vertexBuffer, VkBuffer& indicesBuffer);
-	void CreateSyncObjects(std::vector<VkSemaphore>& imageAvailableSemaphores, std::vector<VkSemaphore>& imageRenderedSemaphores, std::vector<VkFence>& inFlightFences, std::vector<VkFence>& imagesInFlight);
+	void CreateSyncObjects();
+	void CreateCommandBuffers();
 };
