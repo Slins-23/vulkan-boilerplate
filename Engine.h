@@ -1,7 +1,10 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/hash.hpp>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 #include <vulkan/vulkan.h>
@@ -14,6 +17,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <chrono>
+#include <unordered_map>
 
 #pragma once
 
@@ -39,14 +43,15 @@ struct SwapchainDetails {
 };
 
 struct UniformBufferObject {
-	glm::mat4x4 model;
-	glm::mat4x4 view;
-	glm::mat4x4 projection;
+	alignas(16) glm::mat4 model;
+	alignas(16) glm::mat4 view;
+	alignas(16) glm::mat4 projection;
 };
 
 struct Vertex {
-	glm::vec2 position;
+	glm::vec3 position;
 	glm::vec3 color;
+	glm::vec2 texCoord;
 
 	static VkVertexInputBindingDescription GetBindingDescription() {
 		VkVertexInputBindingDescription inputBindingDescription = {};
@@ -58,11 +63,11 @@ struct Vertex {
 	}
 
 	static std::vector<VkVertexInputAttributeDescription> GetAttributeDescriptions() {
-		std::vector<VkVertexInputAttributeDescription> attributeDescriptions(2);
+		std::vector<VkVertexInputAttributeDescription> attributeDescriptions(3);
 
 		attributeDescriptions[0].binding = 0;
 		attributeDescriptions[0].location = 0;
-		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
 		attributeDescriptions[0].offset = offsetof(Vertex, position);
 
 		attributeDescriptions[1].binding = 0;
@@ -70,7 +75,22 @@ struct Vertex {
 		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 		attributeDescriptions[1].offset = offsetof(Vertex, color);
 
+		attributeDescriptions[2].binding = 0;
+		attributeDescriptions[2].location = 2;
+		attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+
 		return attributeDescriptions;
+	}
+
+	bool operator==(const Vertex& other) const {
+		return this->position == other.position && this->texCoord == other.texCoord && this->color == other.color;
+	}
+};
+
+template<> struct std::hash<Vertex> {
+	size_t operator()(Vertex const& vertex) const {
+		return ((std::hash<glm::vec3>()(vertex.position) ^ (std::hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^ (std::hash<glm::vec2>()(vertex.texCoord) << 1);
 	}
 };
 
@@ -129,37 +149,49 @@ private:
 	VkDescriptorPool descriptorPool = 0;
 
 	std::vector<VkDescriptorSet> descriptorSets;
+
+	VkSampler sampler = 0;
+
+	std::vector<VkImage> textureImages = {};
+	std::vector<VkImageView> textureImageViews = {};
+	std::vector<VkDeviceMemory> textureImagesMemory = {};
+
+	VkImage depthImage;
+	VkImageView depthImageView;
+	VkDeviceMemory depthImageMemory;
+
+	uint32_t mipLevels;
+
+	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+
+	VkImage colorImage;
+	VkImageView colorImageView;
+	VkDeviceMemory colorImageMemory;
 public:
 	size_t WIN_W = 800;
 	size_t WIN_H = 600;
 
-	std::vector<Vertex> vertexData = {
-{
-	{{ -0.5f }, { -0.5f }},
-	{{ 1.0f }, { 0.5f }, { 0.5f }},
-},
-{
-	{{ 0.5f }, { -0.5f }},
-	{{ 0.5f }, { 0.1f }, { 1.0f }},
-},
-{
-	{{ 0.5f }, { 0.5f }},
-	{{ 0.0f }, { 0.5f }, { 1.0f }},
-},
-{
-	{{ -0.5f }, { 0.5 }},
-	{{0.23f}, { 0.10f }, {0.00f}},
-}
-	};
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
 
-	std::vector<uint16_t> vertexIndices = {0, 1, 2, 2, 3, 0};
+	float FOV = 45.0f;
+	float NEAREST = 0.1f;
+	float FARTHEST = 10.0f;
+	float ROTATION_ANGLE = 0.0f;
+	glm::vec3 UP ={0.0f, 0.0f, 1.0f};
+	glm::vec3 CENTER = { 0.0f, 0.0f, 0.0f };
+	glm::vec3 ROTATION_AXIS = { 0.0f, 0.0f, 1.0f };
+	glm::vec3 CAMERA_POSITION = { 2.0f, 2.0f, 2.0f };
+
+	const char* MODEL_PATH = "models/chalet.obj";
+	const char* TEXTURE_PATH = "textures/chalet.jpg";
 
 	bool resizeTriggered = false;
 
 	Engine();
 	~Engine();
 
-	void VKCheck(const char& message, VkResult result);
+	void VKCheck(const char* message, VkResult result);
 
 	void Load();
 	void Start();
@@ -170,7 +202,8 @@ public:
 	void Close();
 
 	void DestroyFramebuffers();
-	void DestroyImageViews();
+	void DestroySwapImageViews();
+	void DestroyTextureImageViews();
 	void DestroySyncObjects();
 
 	void ValidateDebugLayers(const std::vector<const char*>& debugLayers);
@@ -184,11 +217,18 @@ public:
 	VkSurfaceFormatKHR GetSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& formats);
 	VkPresentModeKHR GetSurfacePresentMode(const std::vector<VkPresentModeKHR>& presentModes);
 	VkExtent2D GetSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, size_t& WIN_W, size_t& WIN_H);
+	VkFormat GetSupportedFormat(const std::vector<VkFormat>& formats, VkImageTiling tiling, VkFormatFeatureFlags features);
+	VkSampleCountFlagBits GetMSAASupport();
 	uint32_t GetMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 	void GetQueueFamilies();
 	void GetSwapImages(VkSwapchainKHR& swapchain, std::vector<VkImage>& swapImages);
 	void GetSwapchainDetails(VkPhysicalDevice& physicalDevice, SwapchainDetails& details);
 
+	void BeginSingleTimeCommands(VkCommandBuffer& commandBuffer, VkCommandPool& commandPool);
+	void EndSingleTimeCommands(VkCommandBuffer& commandBuffer, VkCommandPool& commandPool);
+
+	void CreateColorResources();
+	void CreateColorImageView();
 
 	void CreateInstance();
 	void CreateWindowSurface();
@@ -201,7 +241,18 @@ public:
 	void CreateGraphicsPipeline();
 	void CreateFramebuffers();
 	void CreateCommandPool(VkCommandPool& commandPool, uint32_t& familyIndex);
-	void CopyBuffer(VkDevice& logicalDevice, VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize& size, VkCommandPool& commandPool);
+	bool hasStencil(VkFormat format);
+	void CreateDepthResources();
+	void CreateDepthImageView(VkFormat& depthFormat);
+	void CreateImage(VkImage& image, VkDeviceMemory& imageMemory, uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties);
+	void CreateModel(const char* name);
+	void CreateTextureImage(const char* name);
+	void CreateTextureImageViews(uint32_t mipLevels);
+	void CreateTextureSampler();
+	void TransitionImageLayout(VkImage& image, uint32_t mipLevels, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout);
+	void GenerateMipmaps(VkImage& image, int32_t im_w, int32_t im_h, uint32_t mipLevels, VkFormat imgFormat);
+	void CopyBufferToImage(VkBuffer& srcBuffer, VkImage& srcImage, uint32_t width, uint32_t height);
+	void CopyBuffer(VkBuffer& srcBuffer, VkBuffer& dstBuffer, VkDeviceSize& size, VkCommandPool& commandPool);
 	void CreateVertexBuffer();
 	void CreateIndicesBuffer();
 	void CreateUniformBuffers();
