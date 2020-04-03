@@ -1,5 +1,8 @@
 # Vulkan learning process
 
+[](https://i.imgur.com/hEHThZa.png)
+
+Currently capable of rendering a model and rotating the camera around it by pressing/holding "Q" and "E". Increase/decrease the FOV with "Numpad +" and "Numpad -".
 
 **I just recently started learning Vulkan and graphics programming from SCRATCH. Expect bad code and optimization. This is just a "toy" repository.**
 
