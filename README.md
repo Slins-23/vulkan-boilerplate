@@ -1,6 +1,6 @@
 # Vulkan learning process
 
-<img src="https://i.imgur.com/hEHThZa.png" alt="Renderer" align="center"/>
+<div align="center"><img src="https://i.imgur.com/hEHThZa.png" alt="Renderer" align="center"/></div>
 
 **I just recently started learning Vulkan and graphics programming from SCRATCH. Expect bad code and optimization. This is just a "toy" repository.**
 
